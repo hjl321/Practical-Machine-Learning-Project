@@ -1,0 +1,189 @@
+---
+title: "Practical Machine Learning - Prediction Assigment"
+author: "HJL"
+date: "21 elokuuta 2016"
+output: 
+  html_document:
+    fig_height: 9
+    fig_width: 9
+
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+knitr::opts_chunk$set(
+  fig.path = "images/"
+)
+```
+
+
+```
+
+## Assigment Backround
+
+"Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement - a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it."
+
+# Goal
+
+In this project, goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: http://groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset).
+
+One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants.
+
+The goal for this report is to predict the manner in which they did the exercise.
+
+
+# Preparation for libraries and data load from the data sources
+
+```{r Load libraries and data files, cache = T}
+library(caret)
+library(rpart)
+library(rpart.plot)
+library(RColorBrewer)
+library(rattle)
+library(randomForest)
+library(corrplot)
+
+
+# Download data.
+TrainingFile <- "./data/pml-training.csv"
+TestingFile <- "./data/pml-testing.csv"
+
+URL_Training <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+download.file(url=URL_Training, destfile=TrainingFile)
+
+URL_Testing <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+download.file(url=URL_Testing, destfile=TestingFile)
+
+Training_ORG <- read.csv(TrainingFile, na.strings=c("NA","#DIV/0!",""))
+Testing_ORG  <- read.csv(TestingFile, na.strings=c("NA","#DIV/0!",""))
+
+```
+
+## Study the data
+
+After downloading and reading the data from the source I'll do some data study.
+
+```{r DataStudy, cache = T}
+dim(Training_ORG)
+dim(Testing_ORG)
+```
+
+**Remarks**  
+
+* The training data set consists of 19622 observations and 160 variables.
+* The testing data set consists s 20 observations and 160 variables.
+* The "classe" variable in the training set is the outcome to predict.
+
+## Cleaning data
+
+This step removes NA missing values.
+
+```{r Cleaning data NA, cache = T}
+Training_ORG <- Training_ORG[, colSums(is.na(Training_ORG)) == 0]
+Testing_ORG <- Testing_ORG[, colSums(is.na(Testing_ORG)) == 0]
+
+```
+
+After removing NA's, I'll remove all columns which doesen't contribute much to the measurements.  
+
+```{r Cleaning data columns, cache = T}
+classe <- Training_ORG$classe
+Training_RM <- grepl("^X|timestamp|window", names(Training_ORG))
+Training_ORG <- Training_ORG[, !Training_RM]
+Trainning_Fixed <- Training_ORG[, sapply(Training_ORG, is.numeric)]
+Trainning_Fixed$classe <- classe
+
+Testing_RM <- grepl("^X|timestamp|window", names(Testing_ORG))
+Testing_ORG <- Testing_ORG[, !Testing_RM]
+Testing_Fixed <- Testing_ORG[, sapply(Testing_ORG, is.numeric)]
+
+```
+
+
+## Study the data after cleaning
+
+```{r DataStudyAfterCleaning, cache = T}
+dim(Trainning_Fixed)
+dim(Testing_Fixed)
+```
+
+**Remarks**  
+
+* The fixed training data set consists of 19622 observations and 53 variables.
+* The fixed testing data set consists s 20 observations and 53 variables.
+
+
+## Divide the training data
+
+I'll Divide the training data set into two. One for training (TrainSet) and one for validating (TestSet).  
+
+* 70% for training
+* 30% for validating
+
+```{r Divide the training data, cache = T}
+set.seed(11451) 
+inTrain <- createDataPartition(Trainning_Fixed$classe, p=0.70, list=F)
+TrainSet <- Trainning_Fixed[inTrain, ]
+TestSet <- Trainning_Fixed[-inTrain, ]
+```
+
+
+### Correlation Matrix
+
+Study the TrainSet
+
+```{r Correlation Matrix, cache = T}
+
+corrPlot <- cor(TrainSet[, -length(names(TrainSet))])
+corrplot(corrPlot, method="color")
+```
+
+### Decision Tree
+
+```{r Decision tree, cache = T}
+treeModel <- rpart(classe ~ ., data=TrainSet, method="class")
+prp(treeModel) 
+```
+
+
+## Modeling
+
+Random Forest algorithm fits best to this prediction because it automatically selects all important variables.   
+
+```{r Modeling, cache = T}
+control <- trainControl(method="cv", 5)
+model <- train(classe ~ ., data=TrainSet, method="rf", trControl=control, ntree=250)
+print(model)
+plot(model)
+```
+
+Check how the model perform with the TestSet (validation)
+
+```{r Modeling performance, cache = T}
+PredictRF <- predict(model,TestSet)
+confusionMatrix(TestSet$classe, PredictRF)
+
+accuracy <- postResample(PredictRF, TestSet$classe)
+print(accuracy)
+OutOfSampleERR <- 1 - as.numeric(confusionMatrix(TestSet$classe, PredictRF)$overall[1])
+print(OutOfSampleERR)
+```
+
+**Estimate for**  
+
+* Accuracy for the model is  99.88%  
+* out-of-sample error is 0.12%
+
+
+##Test Data Set, prediction
+
+I'll use created model to the cleaned original test data set.
+
+```{r Prediction, cache = T}
+StudyResult <- predict(model, Testing_Fixed[, -length(names(Testing_Fixed))])
+print(StudyResult)
+plot(StudyResult) 
+```
+
+
